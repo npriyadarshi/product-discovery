@@ -1,15 +1,16 @@
 import type { SortKey } from "./types";
 
-// Curated "try this" chips. These are common, high-yield queries a real shopper
-// would reach for, and they show off prefix + material + category matching.
+// Curated "try this" chips. Each is a real, high-frequency product *tag*, so a
+// click toggles the same multi-select Tags facet (they stay in sync). A shopper
+// can stack several and then narrow further by typing in the search box.
 export const POPULAR_TERMS = [
-  "rattan",
-  "table lamp",
-  "planter",
-  "marble",
-  "kitchen",
-  "oak",
+  "lamp",
   "vase",
+  "tray",
+  "stool",
+  "handwoven",
+  "vintage",
+  "stackable",
 ];
 
 export const SORT_OPTIONS: { key: SortKey; label: string }[] = [

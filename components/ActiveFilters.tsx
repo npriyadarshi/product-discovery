@@ -23,7 +23,7 @@ export function ActiveFilters({
 }) {
   const chips: Chip[] = [];
 
-  (["categories", "brands", "materials"] as FacetKey[]).forEach((key) => {
+  (["categories", "brands", "materials", "tags"] as FacetKey[]).forEach((key) => {
     filters[key].forEach((value) =>
       chips.push({ label: value, onRemove: () => toggleFacet(key, value) }),
     );
@@ -31,6 +31,12 @@ export function ActiveFilters({
 
   if (filters.inStockOnly) {
     chips.push({ label: "In stock", onRemove: () => setFilters({ ...filters, inStockOnly: false }) });
+  }
+  if (filters.priceOnRequestOnly) {
+    chips.push({
+      label: "Price on request",
+      onRemove: () => setFilters({ ...filters, priceOnRequestOnly: false }),
+    });
   }
   if (filters.minRating > 0) {
     chips.push({

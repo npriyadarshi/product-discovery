@@ -1,14 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type MiniSearch from "minisearch";
 import type { CleanItem, RawItem, SortKey } from "@/lib/types";
 import { normalizeAll } from "@/lib/normalize";
 import {
   autoSuggest,
-  buildIndex,
+  buildEngine,
   didYouMean as computeDidYouMean,
   searchRanked,
+  type SearchEngine,
 } from "@/lib/search";
 import { asset } from "@/lib/basePath";
 import { PAGE_SIZE } from "@/lib/constants";
@@ -17,7 +17,9 @@ export interface Filters {
   categories: string[];
   brands: string[];
   materials: string[];
+  tags: string[];
   inStockOnly: boolean;
+  priceOnRequestOnly: boolean;
   minRating: number;
   priceMin: number | null;
   priceMax: number | null;
@@ -27,7 +29,9 @@ export const EMPTY_FILTERS: Filters = {
   categories: [],
   brands: [],
   materials: [],
+  tags: [],
   inStockOnly: false,
+  priceOnRequestOnly: false,
   minRating: 0,
   priceMin: null,
   priceMax: null,
@@ -38,15 +42,16 @@ export interface FacetOption {
   count: number;
 }
 
-type FacetKey = "categories" | "brands" | "materials";
+type FacetKey = "categories" | "brands" | "materials" | "tags";
 
 interface Catalog {
   items: CleanItem[];
-  index: MiniSearch<CleanItem>;
+  engine: SearchEngine;
   byId: Map<number, CleanItem>;
   categories: string[];
   brands: string[];
   materials: string[];
+  tags: string[];
   priceBounds: { min: number; max: number };
 }
 
@@ -76,10 +81,23 @@ function matches(item: CleanItem, f: Filters, ignore?: FacetKey): boolean {
   ) {
     return false;
   }
+  if (
+    ignore !== "tags" &&
+    f.tags.length &&
+    !f.tags.some((t) => item.tags.includes(t))
+  ) {
+    return false;
+  }
   if (f.inStockOnly && !item.inStock) return false;
   if (f.minRating > 0 && (item.rating ?? 0) < f.minRating) return false;
-  if (f.priceMin != null && (item.price == null || item.price < f.priceMin)) return false;
-  if (f.priceMax != null && (item.price == null || item.price > f.priceMax)) return false;
+  // "Price on request" is mutually exclusive with the price range: when it's on
+  // we show *only* items with no listed price and ignore the min/max entirely.
+  if (f.priceOnRequestOnly) {
+    if (item.price != null) return false;
+  } else {
+    if (f.priceMin != null && (item.price == null || item.price < f.priceMin)) return false;
+    if (f.priceMax != null && (item.price == null || item.price > f.priceMax)) return false;
+  }
   return true;
 }
 
@@ -152,6 +170,7 @@ export interface ProductSearch {
   categoryFacets: FacetOption[];
   brandFacets: FacetOption[];
   materialFacets: FacetOption[];
+  tagFacets: FacetOption[];
   priceBounds: { min: number; max: number };
 
   getSuggestions: (text: string) => string[];
@@ -179,20 +198,28 @@ export function useProductSearch(): ProductSearch {
         if (!res.ok) throw new Error(`Failed to load catalog (${res.status})`);
         const raw = (await res.json()) as RawItem[];
         const items = normalizeAll(raw);
-        const index = buildIndex(items);
+        const engine = buildEngine(items);
         const byId = new Map(items.map((it) => [it.id, it]));
         const categories = [...new Set(items.map((it) => it.category))].sort();
         const brands = [...new Set(items.map((it) => it.brand))].sort();
         const materials = [
           ...new Set(items.map((it) => it.material).filter((m): m is string => !!m)),
         ].sort();
+        // Tags are frequency-ranked so the facet leads with the most useful ones.
+        const tagCounts = new Map<string, number>();
+        for (const it of items) for (const t of it.tags) {
+          tagCounts.set(t, (tagCounts.get(t) ?? 0) + 1);
+        }
+        const tags = [...tagCounts.keys()].sort(
+          (a, b) => (tagCounts.get(b)! - tagCounts.get(a)!) || a.localeCompare(b),
+        );
         const priced = items.map((it) => it.price).filter((p): p is number => p != null);
         const priceBounds = {
           min: Math.floor(Math.min(...priced)),
           max: Math.ceil(Math.max(...priced)),
         };
         if (cancelled) return;
-        setCatalog({ items, index, byId, categories, brands, materials, priceBounds });
+        setCatalog({ items, engine, byId, categories, brands, materials, tags, priceBounds });
         setStatus("ready");
       } catch (err) {
         if (cancelled) return;
@@ -215,7 +242,7 @@ export function useProductSearch(): ProductSearch {
     if (!catalog) return { base: [] as CleanItem[], rankOf: null as Map<number, number> | null };
     const q = debouncedQuery.trim();
     if (!q) return { base: catalog.items, rankOf: null };
-    const ranked = searchRanked(catalog.index, q);
+    const ranked = searchRanked(catalog.engine, q);
     const rankOf = new Map<number, number>();
     const base: CleanItem[] = [];
     ranked.forEach((r, i) => {
@@ -246,6 +273,11 @@ export function useProductSearch(): ProductSearch {
     const pool = queried.base.filter((it) => matches(it, filters, key));
     const counts = new Map<string, number>();
     for (const it of pool) {
+      if (key === "tags") {
+        // Tags are multi-valued: every tag on the item contributes a count.
+        for (const t of it.tags) counts.set(t, (counts.get(t) ?? 0) + 1);
+        continue;
+      }
       const value = key === "categories" ? it.category : key === "brands" ? it.brand : it.material;
       if (value) counts.set(value, (counts.get(value) ?? 0) + 1);
     }
@@ -267,6 +299,11 @@ export function useProductSearch(): ProductSearch {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [catalog, queried, filters],
   );
+  const tagFacets = useMemo(
+    () => (catalog ? buildFacets("tags", catalog.tags) : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [catalog, queried, filters],
+  );
 
   const didYouMean = useMemo(() => {
     if (!catalog) return null;
@@ -274,7 +311,7 @@ export function useProductSearch(): ProductSearch {
     // Only offer a correction when the *query itself* found nothing (not when
     // filters emptied the set).
     if (!q || queried.base.length > 0) return null;
-    return computeDidYouMean(catalog.index, q);
+    return computeDidYouMean(catalog.engine, q);
   }, [catalog, debouncedQuery, queried.base.length]);
 
   const visible = results.slice(0, page * PAGE_SIZE);
@@ -283,7 +320,9 @@ export function useProductSearch(): ProductSearch {
     filters.categories.length +
     filters.brands.length +
     filters.materials.length +
+    filters.tags.length +
     (filters.inStockOnly ? 1 : 0) +
+    (filters.priceOnRequestOnly ? 1 : 0) +
     (filters.minRating > 0 ? 1 : 0) +
     (filters.priceMin != null || filters.priceMax != null ? 1 : 0);
 
@@ -301,7 +340,7 @@ export function useProductSearch(): ProductSearch {
   const clearFilters = () => setFilters(EMPTY_FILTERS);
 
   const getSuggestions = (text: string) =>
-    catalog ? autoSuggest(catalog.index, text) : [];
+    catalog ? autoSuggest(catalog.engine, text) : [];
 
   return {
     status,
@@ -326,6 +365,7 @@ export function useProductSearch(): ProductSearch {
     categoryFacets,
     brandFacets,
     materialFacets,
+    tagFacets,
     priceBounds: catalog?.priceBounds ?? { min: 0, max: 0 },
     getSuggestions,
   };

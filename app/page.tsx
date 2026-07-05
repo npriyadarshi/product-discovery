@@ -20,6 +20,7 @@ function CardSkeleton() {
       <div className="space-y-2 p-4">
         <div className="h-2.5 w-1/3 animate-pulse rounded bg-line/60" />
         <div className="h-3.5 w-3/4 animate-pulse rounded bg-line/60" />
+        <div className="h-3.5 w-1/2 animate-pulse rounded bg-line/60" />
         <div className="h-3 w-1/4 animate-pulse rounded bg-line/60" />
       </div>
     </div>
@@ -39,6 +40,7 @@ export default function Home() {
       categoryFacets={search.categoryFacets}
       brandFacets={search.brandFacets}
       materialFacets={search.materialFacets}
+      tagFacets={search.tagFacets}
       priceBounds={search.priceBounds}
       toggleFacet={search.toggleFacet}
       setFilters={search.setFilters}
@@ -85,7 +87,10 @@ export default function Home() {
           </div>
 
           <div className="mt-5 flex justify-center">
-            <PopularChips onPick={search.setQuery} active={search.query} />
+            <PopularChips
+              selected={search.filters.tags}
+              onToggle={(tag) => search.toggleFacet("tags", tag)}
+            />
           </div>
         </div>
       </section>
@@ -165,7 +170,7 @@ export default function Home() {
 
               {/* Grid / states */}
               {search.status === "loading" ? (
-                <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-4">
+                <div className="grid grid-cols-1 gap-x-4 gap-y-6 min-[400px]:grid-cols-2 sm:grid-cols-3 xl:grid-cols-4">
                   {Array.from({ length: 12 }).map((_, i) => (
                     <CardSkeleton key={i} />
                   ))}

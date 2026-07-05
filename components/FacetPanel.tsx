@@ -1,14 +1,16 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import type { FacetOption, Filters } from "@/hooks/useProductSearch";
 
-type FacetKey = "categories" | "brands" | "materials";
+type FacetKey = "categories" | "brands" | "materials" | "tags";
 
 interface Props {
   filters: Filters;
   categoryFacets: FacetOption[];
   brandFacets: FacetOption[];
   materialFacets: FacetOption[];
+  tagFacets: FacetOption[];
   priceBounds: { min: number; max: number };
   toggleFacet: (key: FacetKey, value: string) => void;
   setFilters: (f: Filters) => void;
@@ -82,16 +84,31 @@ export function FacetPanel({
   categoryFacets,
   brandFacets,
   materialFacets,
+  tagFacets,
   priceBounds,
   toggleFacet,
   setFilters,
   clearFilters,
   activeFilterCount,
 }: Props) {
+  const [tagQuery, setTagQuery] = useState("");
+
   const setPrice = (side: "priceMin" | "priceMax", raw: string) => {
     const value = raw === "" ? null : Number(raw);
     setFilters({ ...filters, [side]: value == null || Number.isNaN(value) ? null : value });
   };
+
+  // Filter the (long) tag list by the search-within box; always keep selected
+  // tags visible so they can be unchecked even when filtered out.
+  const visibleTags = useMemo(() => {
+    const q = tagQuery.trim().toLowerCase();
+    if (!q) return tagFacets;
+    return tagFacets.filter(
+      (t) => t.value.toLowerCase().includes(q) || filters.tags.includes(t.value),
+    );
+  }, [tagFacets, tagQuery, filters.tags]);
+
+  const priceDisabled = filters.priceOnRequestOnly;
 
   return (
     <div className="text-ink">
@@ -118,6 +135,19 @@ export function FacetPanel({
           />
           <span className={filters.inStockOnly ? "text-ink" : "text-muted"}>In stock only</span>
         </label>
+        <label className="flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm hover:bg-clay-soft/40">
+          <input
+            type="checkbox"
+            checked={filters.priceOnRequestOnly}
+            onChange={(e) =>
+              setFilters({ ...filters, priceOnRequestOnly: e.target.checked })
+            }
+            className="h-4 w-4 rounded border-line accent-clay"
+          />
+          <span className={filters.priceOnRequestOnly ? "text-ink" : "text-muted"}>
+            Price on request only
+          </span>
+        </label>
       </Section>
 
       <Section title="Category">
@@ -130,10 +160,11 @@ export function FacetPanel({
             type="number"
             inputMode="numeric"
             min={0}
+            disabled={priceDisabled}
             value={filters.priceMin ?? ""}
             onChange={(e) => setPrice("priceMin", e.target.value)}
             placeholder={`$${priceBounds.min}`}
-            className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm focus:border-clay/50 focus:outline-none"
+            className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm focus:border-clay/50 focus:outline-none disabled:cursor-not-allowed disabled:opacity-40"
             aria-label="Minimum price"
           />
           <span className="text-muted">–</span>
@@ -141,15 +172,18 @@ export function FacetPanel({
             type="number"
             inputMode="numeric"
             min={0}
+            disabled={priceDisabled}
             value={filters.priceMax ?? ""}
             onChange={(e) => setPrice("priceMax", e.target.value)}
             placeholder={`$${priceBounds.max}`}
-            className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm focus:border-clay/50 focus:outline-none"
+            className="w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm focus:border-clay/50 focus:outline-none disabled:cursor-not-allowed disabled:opacity-40"
             aria-label="Maximum price"
           />
         </div>
         <p className="mt-1.5 px-1 text-[11px] text-muted/70">
-          Items without a listed price are hidden when a range is set.
+          {priceDisabled
+            ? "Disabled while “Price on request only” is on."
+            : "Items without a listed price are hidden when a range is set."}
         </p>
       </Section>
 
@@ -174,6 +208,22 @@ export function FacetPanel({
 
       <Section title="Material">
         <CheckList facetKey="materials" options={materialFacets} selected={filters.materials} onToggle={toggleFacet} scroll />
+      </Section>
+
+      <Section title="Tags">
+        <input
+          type="search"
+          value={tagQuery}
+          onChange={(e) => setTagQuery(e.target.value)}
+          placeholder="Filter tags…"
+          aria-label="Filter tags"
+          className="mb-2 w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm focus:border-clay/50 focus:outline-none"
+        />
+        {visibleTags.length ? (
+          <CheckList facetKey="tags" options={visibleTags} selected={filters.tags} onToggle={toggleFacet} scroll />
+        ) : (
+          <p className="px-2 py-1.5 text-sm text-muted/70">No tags match “{tagQuery}”.</p>
+        )}
       </Section>
 
       <Section title="Brand">

@@ -15,7 +15,7 @@ export function ProductCard({ item, onSelect }: Props) {
     <button
       type="button"
       onClick={() => onSelect(item)}
-      className="group flex flex-col overflow-hidden rounded-2xl border border-line bg-surface text-left transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_12px_30px_-18px_rgba(60,45,30,0.45)] focus:outline-none focus-visible:ring-2 focus-visible:ring-clay/60"
+      className="group flex h-full w-full flex-col overflow-hidden rounded-2xl border border-line bg-surface text-left transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_12px_30px_-18px_rgba(60,45,30,0.45)] focus:outline-none focus-visible:ring-2 focus-visible:ring-clay/60"
     >
       <div className="relative aspect-[4/5] w-full overflow-hidden bg-line/40">
         <ProductImage
@@ -56,7 +56,7 @@ export function ProductCard({ item, onSelect }: Props) {
           </span>
         </div>
 
-        <h3 className="font-display text-[15px] leading-snug text-ink">
+        <h3 className="line-clamp-2 min-h-[2.6em] break-words font-display text-[15px] leading-snug text-ink">
           {item.title}
         </h3>
 

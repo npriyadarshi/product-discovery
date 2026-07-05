@@ -79,7 +79,7 @@ export function ProductDetail({
                   <p className="text-[12px] font-medium uppercase tracking-[0.16em] text-clay-ink">
                     {item.brand}
                   </p>
-                  <h2 className="font-display text-2xl leading-tight text-ink">
+                  <h2 className="font-display text-2xl leading-tight text-ink break-words">
                     {item.title}
                   </h2>
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted">
