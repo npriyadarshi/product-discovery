@@ -1,8 +1,10 @@
 import MiniSearch from "minisearch";
 import type { CleanItem } from "./types";
 
-/** Minimum fragment length before it participates in substring (infix) matching.
- *  1-char fragments are pure noise; the prefix pass already covers them. */
+/** At/above this length a query fragment matches as a *substring* (so "eath"
+ *  finds "leather"). Below it (a single character) we fall back to *word-prefix*
+ *  matching instead, so a lone "r" surfaces R-words rather than every item whose
+ *  text merely contains an "r". */
 const MIN_INFIX_LEN = 2;
 
 /** A single searchable document for the infix pass: its id and a flattened,
@@ -56,6 +58,10 @@ export function buildEngine(items: CleanItem[]): SearchEngine {
     // We hydrate full records from our own map, so nothing needs to be stored
     // inside the index itself.
     extractField: (doc, field) => {
+      // MiniSearch also calls extractField for the id field. Keep the id as its
+      // original (numeric) value — string-coercing it here made search return
+      // "188" while our byId map is keyed by 188, so every lookup missed.
+      if (field === "id") return doc.id as unknown as string;
       if (field === "tags") return (doc.tags ?? []).join(" ");
       const value = doc[field as keyof CleanItem];
       return value == null ? "" : String(value);
@@ -90,10 +96,11 @@ export interface Ranked {
  * Two passes, unioned:
  *  1. MiniSearch — weighted prefix + fuzzy. These are the strongest matches and
  *     always rank first, preserving the "title beats tags beats brand" ordering.
- *  2. Infix fallback — every query fragment (>= 2 chars) must appear *somewhere*
- *     in the item's searchable text. This recovers mid/end-of-word fragments
- *     ("eath" -> leather) that MiniSearch structurally can't reach. Substring-
- *     only matches are appended after the ranked ones.
+ *  2. Recall fallback — every query fragment must match the item's searchable
+ *     text. Fragments of 2+ chars match as a *substring* (recovers mid/end-of-
+ *     word fragments like "eath" -> leather); a single character matches as a
+ *     *word prefix* ("r" -> Rattan, Rug) so a lone letter still returns results
+ *     instead of nothing. Fallback matches are appended after the ranked ones.
  */
 export function searchRanked(engine: SearchEngine, query: string): Ranked[] {
   const trimmed = query.trim();
@@ -104,21 +111,30 @@ export function searchRanked(engine: SearchEngine, query: string): Ranked[] {
     .search(trimmed)
     .map((r) => ({ id: r.id as number, score: r.score }));
 
-  // Pass 2: substring/infix recall for anything the ranked pass didn't already
-  // catch. Fragments shorter than MIN_INFIX_LEN are ignored to avoid noise.
-  const infixTokens = tokenize(trimmed).filter((t) => t.length >= MIN_INFIX_LEN);
-  if (infixTokens.length === 0) return primary;
+  // Pass 2: recall fallback. Each token gets a matcher by length: substring for
+  // 2+ chars, word-prefix for a single character. Tokens are [a-z0-9]+, so
+  // they're safe to embed directly in a RegExp.
+  const tokens = tokenize(trimmed);
+  if (tokens.length === 0) return primary;
+
+  const matchers = tokens.map((t) => {
+    if (t.length >= MIN_INFIX_LEN) {
+      return (text: string) => text.includes(t);
+    }
+    const wordPrefix = new RegExp(`(^|[^a-z0-9])${t}`);
+    return (text: string) => wordPrefix.test(text);
+  });
 
   const seen = new Set(primary.map((r) => r.id));
-  const infix: Ranked[] = [];
+  const fallback: Ranked[] = [];
   for (const doc of engine.corpus) {
     if (seen.has(doc.id)) continue;
-    if (infixTokens.every((t) => doc.text.includes(t))) {
-      infix.push({ id: doc.id, score: 0 });
+    if (matchers.every((m) => m(doc.text))) {
+      fallback.push({ id: doc.id, score: 0 });
     }
   }
 
-  return primary.concat(infix);
+  return primary.concat(fallback);
 }
 
 /**
